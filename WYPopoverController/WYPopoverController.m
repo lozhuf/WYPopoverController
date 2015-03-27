@@ -1428,7 +1428,6 @@ static float edgeSizeFromCornerRadius(float cornerRadius) {
   BOOL                     _animated;
   BOOL                     _isListeningNotifications;
   BOOL                     _isObserverAdded;
-  BOOL                     _isInterfaceOrientationChanging;
   BOOL                     _ignoreOrientation;
   __weak UIBarButtonItem  *_barButtonItem;
 
@@ -2317,8 +2316,9 @@ static WYPopoverTheme *defaultTheme_ = nil;
   // keyboard support
   if (keyboardHeight > 0) {
 
-    float keyboardY = UIInterfaceOrientationIsPortrait(orientation) ? WYKeyboardListener.rect.origin.y : WYKeyboardListener.rect.origin.x;
-
+    CGRect convertedFrame = [_overlayView.window convertRect:WYKeyboardListener.rect toView:_inView];
+    float keyboardY = convertedFrame.origin.y;
+      
     float yOffset = containerFrame.origin.y + containerFrame.size.height - keyboardY;
 
     if (yOffset > 0) {
@@ -2833,43 +2833,51 @@ static CGPoint WYPointRelativeToOrientation(CGPoint origin, CGSize size, UIInter
 
 #pragma mark Selectors
 
+- (void) setNeedsReposition
+{
+    [NSObject cancelPreviousPerformRequestsWithTarget:self selector:@selector(performReposition) object:nil];
+    [self performSelector:@selector(performReposition) withObject:nil afterDelay:0];
+}
+
+- (void) performReposition
+{
+    if ([_viewController isKindOfClass:[UINavigationController class]]) {
+        UINavigationController* navigationController = (UINavigationController*)_viewController;
+        
+        if (navigationController.navigationBarHidden == NO) {
+            navigationController.navigationBarHidden = YES;
+            navigationController.navigationBarHidden = NO;
+        }
+    }
+    
+    if (_barButtonItem) {
+        _inView = [_barButtonItem valueForKey:@"view"];
+        _rect = _inView.bounds;
+    } else if ([_delegate respondsToSelector:@selector(popoverController:willRepositionPopoverToRect:inView:)]) {
+        CGRect anotherRect;
+        UIView *anotherInView;
+        
+        [_delegate popoverController:self willRepositionPopoverToRect:&anotherRect inView:&anotherInView];
+        
+        if (&anotherRect != NULL) {
+            _rect = anotherRect;
+        }
+        
+        if (&anotherInView != NULL) {
+            _inView = anotherInView;
+        }
+    }
+    
+    [self positionPopover:NO];
+
+}
+
 - (void)didChangeStatusBarOrientation:(NSNotification *)notification {
-  _isInterfaceOrientationChanging = YES;
+    [self setNeedsReposition];
 }
 
 - (void)didChangeDeviceOrientation:(NSNotification *)notification {
-  if (_isInterfaceOrientationChanging == NO) return;
-
-  _isInterfaceOrientationChanging = NO;
-
-  if ([_viewController isKindOfClass:[UINavigationController class]]) {
-    UINavigationController* navigationController = (UINavigationController*)_viewController;
-
-    if (navigationController.navigationBarHidden == NO) {
-      navigationController.navigationBarHidden = YES;
-      navigationController.navigationBarHidden = NO;
-    }
-  }
-
-  if (_barButtonItem) {
-    _inView = [_barButtonItem valueForKey:@"view"];
-    _rect = _inView.bounds;
-  } else if ([_delegate respondsToSelector:@selector(popoverController:willRepositionPopoverToRect:inView:)]) {
-    CGRect anotherRect;
-    UIView *anotherInView;
-
-    [_delegate popoverController:self willRepositionPopoverToRect:&anotherRect inView:&anotherInView];
-
-    if (&anotherRect != NULL) {
-      _rect = anotherRect;
-    }
-
-    if (&anotherInView != NULL) {
-      _inView = anotherInView;
-    }
-  }
-
-  [self positionPopover:NO];
+    [self setNeedsReposition];
 }
 
 - (void)keyboardWillShow:(NSNotification *)notification {
